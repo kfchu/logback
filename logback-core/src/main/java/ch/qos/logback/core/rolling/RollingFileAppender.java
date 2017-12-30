@@ -17,15 +17,25 @@ import static ch.qos.logback.core.CoreConstants.CODES_URL;
 import static ch.qos.logback.core.CoreConstants.MORE_INFO_PREFIX;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.channels.Channel;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import java.util.Map.Entry;
 
 import ch.qos.logback.core.CoreConstants;
 import ch.qos.logback.core.FileAppender;
+import ch.qos.logback.core.recovery.ResilientFileOutputStream;
 import ch.qos.logback.core.rolling.helper.CompressionMode;
 import ch.qos.logback.core.rolling.helper.FileNamePattern;
+import ch.qos.logback.core.status.ErrorStatus;
 import ch.qos.logback.core.util.ContextUtil;
+import ch.qos.logback.core.util.FileUtil;
 
 /**
  * <code>RollingFileAppender</code> extends {@link FileAppender} to backup the
@@ -194,6 +204,16 @@ public class RollingFileAppender<E> extends FileAppender<E> {
         }
     }
 
+    private void attemptOpenActiveFile() {
+        lock.lock();
+        try {
+            this.closeOutputStream();
+            attemptOpenFile();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private void attemptOpenFile() {
         try {
             // update the currentlyActiveFile LOGBACK-64
@@ -224,6 +244,11 @@ public class RollingFileAppender<E> extends FileAppender<E> {
         // The roll-over check must precede actual writing. This is the
         // only correct behavior for time driven triggers.
 
+        // LOGBACK-1123
+        if (!isOutputToActiveFile()) {
+            attemptOpenActiveFile();
+        }
+
         // We need to synchronize on triggeringPolicy so that only one rollover
         // occurs at a time
         synchronized (triggeringPolicy) {
@@ -233,6 +258,21 @@ public class RollingFileAppender<E> extends FileAppender<E> {
         }
 
         super.subAppend(event);
+    }
+
+    private boolean isOutputToActiveFile() {
+        ResilientFileOutputStream rfos = ((ResilientFileOutputStream) getOutputStream());
+        if(rfos == null || rfos.getFileKey() == null) {
+            return true;
+        }
+
+        try {
+            Object activeFileKey = FileUtil.getFileKey(currentlyActiveFile);
+            return rfos.getFileKey().equals(activeFileKey);
+        } catch (IOException ioe) {
+            addError("Fail to check if current output file is the same as active file", ioe);
+            return true;
+        }
     }
 
     public RollingPolicy getRollingPolicy() {

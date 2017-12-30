@@ -21,6 +21,8 @@ import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 
 public class FileUtil extends ContextAwareBase {
 
@@ -57,6 +59,10 @@ public class FileUtil extends ContextAwareBase {
         // already exist; and it's okay if they do.
         parent.mkdirs();
         return parent.exists();
+    }
+
+    public static Object getFileKey(File file) throws IOException {
+        return Files.readAttributes(file.toPath(), BasicFileAttributes.class).fileKey();
     }
 
     public String resourceAsString(ClassLoader classLoader, String resourceName) {
